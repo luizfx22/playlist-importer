@@ -1,9 +1,21 @@
 import { Credentials, OAuth2Client } from "google-auth-library";
-import { google } from "googleapis";
+import { google, youtube_v3 } from "googleapis";
 import fs from "fs";
 import express from "express";
 import { GaxiosError } from "gaxios";
 import open from "open";
+
+type YTPlaylist = youtube_v3.Schema$Playlist;
+type YTPlaylistInsert = youtube_v3.Params$Resource$Playlists$Insert;
+type YTPlaylistItem = youtube_v3.Schema$PlaylistItem;
+
+type YTSearchListResponse = youtube_v3.Schema$SearchListResponse;
+
+export enum ePlaylistPrivacy {
+	private = "private",
+	public = "public",
+	unlisted = "unlisted",
+}
 
 export default class {
 	private _oauth2Client: OAuth2Client;
@@ -44,31 +56,45 @@ export default class {
 		this._oauth2Client.credentials = token;
 	}
 
-	public async createPlaylist(playlistName: string): Promise<unknown> {
+	public async createPlaylist(
+		playlistName: string,
+		playlistDescription?: string,
+		privacy: ePlaylistPrivacy = ePlaylistPrivacy.private
+	): Promise<YTPlaylist> {
 		const service = google.youtube({
 			version: "v3",
 			auth: this._oauth2Client,
 		});
 
-		const response = await service.playlists.insert({
-			part: ["snippet"],
+		const request: YTPlaylistInsert = {
+			part: ["snippet", "status"],
 			requestBody: {
 				snippet: {
 					title: playlistName,
 				},
+				status: {
+					privacyStatus: privacy,
+				},
 			},
-		});
+		};
 
-		return response.data.id;
+		if (playlistDescription && request?.requestBody?.snippet) request.requestBody.snippet.description = playlistDescription;
+
+		const response = await service.playlists.insert(request);
+
+		if (!response || !response.data) throw new Error("No response from youtube api");
+		if (response.status !== 200) throw new Error("Youtube api returned status code: " + response.status);
+
+		return response.data;
 	}
 
-	public async addVideoToPlaylist(playlistId: string, videoId: string): Promise<void> {
-		const youtube = google.youtube({
+	public async addVideoToPlaylist(playlistId: string, videoId: string): Promise<YTPlaylistItem> {
+		const service = google.youtube({
 			version: "v3",
 			auth: this._oauth2Client,
 		});
 
-		await youtube.playlistItems.insert({
+		const response = await service.playlistItems.insert({
 			part: ["snippet"],
 			requestBody: {
 				snippet: {
@@ -77,14 +103,18 @@ export default class {
 						kind: "youtube#video",
 						videoId,
 					},
+					position: 0,
 				},
 			},
 		});
 
-		return;
+		if (!response || !response.data) throw new Error("No response from youtube api");
+		if (response.status !== 200) throw new Error("Youtube api returned status code: " + response.status);
+
+		return response.data;
 	}
 
-	public async searchVideo(query: string): Promise<unknown> {
+	public async searchVideo(query: string): Promise<YTSearchListResponse> {
 		const youtube = google.youtube({
 			version: "v3",
 			auth: this._oauth2Client,
@@ -99,7 +129,7 @@ export default class {
 		if (!response?.data?.items) throw new Error("No video found for query: " + query);
 		if (response?.data?.items?.length === 0) throw new Error("No video found for query: " + query);
 
-		return response?.data?.items[0]?.id?.videoId;
+		return response?.data;
 	}
 
 	private async OAuth2Login(): Promise<void> {
