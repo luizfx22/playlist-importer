@@ -1,0 +1,7 @@
+node_modules
+*_secrets.json
+*_token.json
+*-token.json
+tst__*
+!package.json
+old
