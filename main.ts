@@ -1,86 +1,58 @@
 import fs from "fs";
-import axios from "axios";
-import express from "express";
-import open from "open";
-import Spotify, { Playlist } from "./spotify";
-import Youtube, { ePlaylistPrivacy } from "./youtube";
+import Spotify from "./spotify";
+import Youtube from "./youtube";
+import { delay } from "./utils";
 
-const spotifyCredentials = JSON.parse(fs.readFileSync("./spotify_secrets.json").toString());
-const youtubeCredentials = JSON.parse(fs.readFileSync("./youtube_secrets.json").toString());
-
-const spotify = new Spotify(spotifyCredentials);
-const youtube = new Youtube(youtubeCredentials);
+const YT_PLAYLIST_ID = "PLFxAhK-oPlhcVg9UbBP3Kz3pEseSRFN9X";
 
 async function main() {
-	// await spotify.init();
-	// const playlist = await spotify.getPlaylist("2meFu1SRl8VkbZWftSRxCq");
+	const spotifyCredentials = JSON.parse(fs.readFileSync("./spotify_secrets.json").toString());
+	const youtubeCredentials = JSON.parse(fs.readFileSync("./youtube_secrets.json").toString());
 
-	const playlist = JSON.parse(fs.readFileSync("./playlist.json").toString()) as Playlist;
+	const spotify = new Spotify(spotifyCredentials);
+	const youtube = new Youtube(youtubeCredentials);
 
-	const playlistTracksNames = playlist.tracks.items.map(
-		(item) => `${item.track.name} - ${item.track.artists.map((artist) => artist.name).join(", ")}`
-	);
-
-	// Create a new youtube playlist
+	await spotify.init();
 	await youtube.init();
 
-	const ytPlaylist = `House Roor ${Math.ceil(Math.random() * 1000)}`;
+	const playlist = await spotify.getPlaylist("2meFu1SRl8VkbZWftSRxCq");
 
-	console.log("Playlist name:", ytPlaylist);
+	let videosIds: Record<string, string | null> = {};
 
-	const youtubePlaylist = await youtube.createPlaylist(ytPlaylist);
+	// Create a json file to store the videos ids
+	const playlistName = playlist.name.replace(" ", "").toLowerCase();
 
-	if (!youtubePlaylist) throw new Error("No playlist created");
-	if (!youtubePlaylist?.id) throw new Error("No playlist id");
+	// Check if the file already exists
+	if (fs.existsSync(`./${playlistName}.json`)) videosIds = JSON.parse(fs.readFileSync(`./${playlistName}.json`).toString());
+	else fs.writeFileSync(`./${playlistName}.json`, JSON.stringify(videosIds));
 
-	let ran = 0;
-	const error = [];
+	// Search for all videos in the list each 500ms
+	for (const track of playlist.tracks.items) {
+		console.log(`[i] Searching for: ${track.track.name}...`);
 
-	// Search for each track in youtube
-	for (const track of playlistTracksNames) {
-		ran++;
-		const searchResults = await youtube.searchVideo(track);
-		const searchItems = searchResults.items;
-
-		if (!searchItems?.length || !Array.isArray(searchItems)) {
-			error.push(track);
-			console.log("Error:", track, "(", ran, "/", playlistTracksNames.length, ")");
+		// Check if the track is already in the json file
+		if (videosIds[track.track.id]) {
+			console.log(`[i] Found video in json file: ${videosIds[track.track.id]}! Skipping...`);
 			continue;
 		}
 
-		if (!searchItems) {
-			error.push(track);
-			console.log("Error:", track, "(", ran, "/", playlistTracksNames.length, ")");
-			continue;
-		}
+		const video = await youtube.searchVideo(
+			`${track.track.name} - ${track.track.artists.map((artist) => artist.name).join(", ")}`
+		);
 
-		const videoId = searchItems[0]?.id?.videoId;
+		console.log(`[i] Found video: ${video}!`);
 
-		if (!videoId) {
-			error.push(track);
-			console.log("Error:", track, "(", ran, "/", playlistTracksNames.length, ")");
-			continue;
-		}
+		videosIds[track.track.id] = video;
 
-		// Add the track to the youtube playlist
-		const result = await youtube.addVideoToPlaylist(youtubePlaylist.id, videoId).catch((e) => {
-			console.log(e);
-			return false;
-		});
+		// Update the json file
+		fs.writeFileSync(`./${playlistName}.json`, JSON.stringify(videosIds));
 
-		if (!result) {
-			error.push(track);
-			console.log("Error:", track, "(", ran, "/", playlistTracksNames.length, ")");
-			continue;
-		}
-
-		console.log("Added track:", track, "(", ran, "/", playlistTracksNames.length, ")");
-
-		await new Promise((resolve) => setTimeout(resolve, 1000));
+		await delay(500);
 	}
 
-	// Store the error tracks
-	fs.writeFileSync("./error.json", JSON.stringify(error, null, 2));
+	// Insert the video into the playlist
+
+	//
 }
 
 main();

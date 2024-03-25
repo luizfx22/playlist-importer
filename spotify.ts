@@ -8,10 +8,12 @@ export default class {
 	private spotifySecrets: ISpotifySecrets;
 	private spotifyToken: ISpotifyToken = {} as ISpotifyToken;
 
-	public spotifyTokenStoragePath = "./spotify_token.json";
+	public spotifyTokenStoragePath = "./.tokens/spotify-token.json";
 	public scopes: string[] = ["playlist-read-private"];
 
 	constructor(spotifySecrets: ISpotifySecrets) {
+		if (!fs.existsSync("./.tokens")) fs.mkdirSync("./.tokens");
+
 		const authUrl = `https://accounts.spotify.com/authorize?client_id={0}&response_type=code&redirect_uri={1}&scope={2}`;
 
 		if (!spotifySecrets.clientId) throw new Error("Missing clientId");
